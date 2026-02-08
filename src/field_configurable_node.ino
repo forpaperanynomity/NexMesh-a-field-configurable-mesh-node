@@ -1,10 +1,30 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
-#include <EEPROM.h>
+#include <Arduino.h>
 #include <painlessMesh.h>
-#include <PubSubClient.h> // For MQTT client
+#include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <EEPROM.h>
+
+// --- Cross-Platform Includes ---
+#ifdef ESP32
+  #include <WiFi.h>
+  #include <WebServer.h>
+  typedef WebServer WebServerType;
+#else
+  #include <ESP8266WiFi.h>
+  #include <WiFi.h>
+  #include <ESP8266WebServer.h>
+  typedef ESP8266WebServer WebServerType;
+#endif
+
+#include <ESP8266mDNS.h> // Note: For ESP32 use ESPmDNS.h if needed
+
+// Add sensor-specific libraries (START)
+
+// Add sensor-specific libraries (END)
+
+// Add sensor-specific global variables and objects (START)
+
+// Add sensor-specific global variables and objects (END)
 
 // --- Configuration Constants ---
 // Default AP and MESH settings for configuration mode
@@ -22,7 +42,15 @@ IPAddress AP_SUBNET(255, 255, 255, 0);
 // Reset button pin (example: D0 on NodeMCU/ESP-12E)
 // Make sure to connect a pull-up resistor if using a simple button to GND.
 // Or use INPUT_PULLUP and connect button to GND.
-const int RESET_BUTTON_PIN = D7; // GPIO13 on NodeMCU
+// --- Hardware Specific Pin Definitions ---
+
+#ifdef ESP32
+  const int RESET_BUTTON_PIN = 0; // Assign GPIO on ESP32 board for the reset pin 
+#else
+  const int RESET_BUTTON_PIN = D7; // GPIO13 on NodeMCU 
+#endif
+
+//const int RESET_BUTTON_PIN = D7; // GPIO13 on NodeMCU
 const unsigned long RESET_HOLD_TIME_MS = 5000; // 5 seconds
 
 // EEPROM size for configuration storage
@@ -30,10 +58,13 @@ const unsigned long RESET_HOLD_TIME_MS = 5000; // 5 seconds
 
 // --- Global Objects ---
 Scheduler userScheduler;
-ESP8266WebServer server(80);
+WebServerType server(80); 
+//ESP8266WebServer server(80);
 painlessMesh mesh;
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
+// holds the sensor data in JSON  
+StaticJsonDocument<1000> sensor_data;
 
 // User background periodic tasks
 void sendSensedData() ;     // Collect and transmit local sensor data at a configured interval, routing it to either 
@@ -69,6 +100,7 @@ struct Config {
                               // For ESP32: Not used    
 };
 
+#define EEPROM_SIZE sizeof(Config)
 Config config; // Global configuration variable
 
 // --- State Variables for Normal Operation ---
@@ -79,6 +111,8 @@ const long MQTT_RECONNECT_INTERVAL = 5000; // 10 seconds
 // --- State Variables for Reset Button ---
 unsigned long resetButtonPressedTime = 0;
 bool resetButtonState = HIGH; // Initial state (active-low)
+// stores the channel ID that will be used
+uint32_t channelId;
 
 // --- Function Prototypes ---
 void loadConfiguration();
@@ -97,11 +131,11 @@ void reconnectMQTT();
 void getChannel();
 String getSensorData(); // Placeholder for sensor reading
 
-// stores the channel ID that will be used
-uint32_t channelId;
+// ----- Global Variables/Constants & Sensor Definitions ----- 
+// Add global variables and constants for the sensing logic (START)
 
-// holds the sensor data in JSON  
-StaticJsonDocument<1000> sensor_data;
+// Add global variables and constants for the sensing logic (END)
+
 
 // --- Setup Function ---
 void setup() {
@@ -122,6 +156,11 @@ void setup() {
         Serial.println("Node configured. Starting normal operation.");
         Serial.printf("Node ID: %ld, Coordinator ID: %ld, Duty Cycle: %ld seconds\n",
                       config.nodeID, config.coordinatorID, config.dutyCycle);
+        
+        // ----- Initialization & Device Discovery -----
+        // Initialize sensor variables, objects, etc. (START)
+
+        // Initialize sensor variables, objects, etc. (END)
         
         if (config.isCoordinator) {
         
@@ -170,6 +209,10 @@ void setup() {
             meshInit();
             Serial.println("Mesh created..");
         }
+
+        // Execute sensor setup and device discovery (START)
+
+        // Execute sensor setup and device discovery (END)
             
         Serial.printf("Setting the duty cycle to %ld seconds", config.dutyCycle);
         taskSendSensedData.setInterval(config.dutyCycle * TASK_SECOND);
@@ -533,7 +576,6 @@ void sendSensedData() {
   
   if (config.isCoordinator) {
         
-         // Get sensor data
         Serial.printf("Coordinator senseed data: %s\n", data.c_str());
 
         
@@ -654,9 +696,17 @@ void reconnectMQTT() {
         Serial.print("Attempting MQTT connection...");
         
         String clientId = "ESP-";
-        clientId += String(ESP.getChipId()); // Unique client ID
-        clientId += String(random(0xffff), HEX);
         
+        
+        #ifdef ESP32
+            clientId += String((uint32_t)ESP.getEfuseMac(), HEX); ; // Unique client ID
+            //return String((uint32_t)ESP.getEfuseMac(), HEX);
+        #else
+            //clientId += String(ESP.getChipId()); // Unique client ID
+            clientId += String(ESP.getChipId(), HEX); // Unique client ID
+            //return String(ESP.getChipId(), HEX);
+        #endif
+        clientId += String(random(0xffff), HEX);
         Serial.printf("Connecting to MQTT as %s\n", clientId.c_str());
         
         bool connected;
@@ -721,6 +771,7 @@ String getSensorData() {
     
     sensor_data["nodeID"] = config.nodeID;
     //sensor_data["datetime"] = "2025-02-16 12:29:21.830751";
+
     
     // Example: Simulate a sensor reading (e.g., temperature)
     //float temperature = random(200, 300) / 10.0; // Random temperature between 20.0 and 30.0
@@ -732,7 +783,12 @@ String getSensorData() {
     sensor_data["co2"] = 500;
     sensor_data["tvoc"] = 200;
     sensor_data["lux"] = 400;    
-     
+
+    // ----- Data Acquisition & Sensing Logic ----- 
+    // Read sensor data (START)
+
+    // Read sensor data (END)
+        
     serializeJson(sensor_data, buffer);
     
     return String(buffer);
